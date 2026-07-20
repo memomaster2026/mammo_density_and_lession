@@ -202,7 +202,13 @@ st.markdown("""
 # CONFIGURATION DES MODÈLES
 # ==========================================================
 
-IMG_SIZE_DENSITY = 224
+# TAILLE RÉELLE DU MODÈLE - IMPORTANT !
+# Le modèle a été entraîné avec des images 512x512
+MODEL_INPUT_SIZE = 512  # ← TAILLE RÉELLE DU MODÈLE
+
+# Pour l'affichage et le prétraitement intermédiaire
+PREPROCESS_SIZE = 512
+DISPLAY_SIZE = 224  # Pour l'affichage uniquement
 
 CLASS_NAMES_DENSITY = {
     0: "ACR_A",
@@ -392,25 +398,34 @@ def preprocess_mammogram_image(img_array: np.ndarray, img_size: int = 512) -> np
     
     return canvas
 
-def prepare_for_model(img_array: np.ndarray, target_size: int) -> np.ndarray:
+# ==========================================================
+# PRÉPARATION POUR LE MODÈLE - CORRIGÉE !
+# ==========================================================
+
+def prepare_for_model(img_array: np.ndarray) -> np.ndarray:
     """
     Prépare l'image pour le modèle CNN.
-    Gère correctement les entrées du modèle.
+    Le modèle attend des images 512x512 en RGB.
     """
-    # Conversion en RGB
+    # Vérifier si l'image est en niveaux de gris
     if len(img_array.shape) == 2:
+        # Convertir en RGB
         img_rgb = cv2.cvtColor(img_array, cv2.COLOR_GRAY2RGB)
     else:
         img_rgb = img_array
     
-    # Redimensionnement
-    img_resized = cv2.resize(img_rgb, (target_size, target_size))
+    # Redimensionner à 512x512 (TAILLE RÉELLE DU MODÈLE)
+    img_resized = cv2.resize(img_rgb, (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), 
+                             interpolation=cv2.INTER_AREA)
     
-    # Normalisation [0, 1]
-    arr = img_resized.astype(np.float32) / 255.0
+    # Normaliser entre 0 et 1
+    img_normalized = img_resized.astype(np.float32) / 255.0
     
-    # Ajout de la dimension batch
-    return np.expand_dims(arr, axis=0)
+    # Ajouter la dimension batch (1, 512, 512, 3)
+    batch_input = np.expand_dims(img_normalized, axis=0)
+    
+    logger.info(f"Image préparée pour le modèle: shape {batch_input.shape}")
+    return batch_input
 
 # ==========================================================
 # FONCTIONS DE DÉTECTION DES LÉSIONS
@@ -613,7 +628,7 @@ def load_density_model():
             "modele_densite_final.keras",
             compile=False
         )
-        logger.info("Modèle de densité chargé avec succès")
+        logger.info(f"Modèle de densité chargé. Input shape: {model.input_shape}")
         return model, None
     except Exception as e:
         error_msg = f"Erreur de chargement du modèle de densité: {str(e)}"
@@ -634,20 +649,26 @@ def load_yolo_model():
         return None, error_msg
 
 # ==========================================================
-# PRÉDICTION DENSITÉ - VERSION CORRIGÉE
+# PRÉDICTION DENSITÉ - CORRIGÉE
 # ==========================================================
 
 def predict_density(model, img_array):
     """
-    Prédit la densité mammaire avec gestion correcte des entrées.
+    Prédit la densité mammaire.
+    img_array doit être au format (1, 512, 512, 3)
     """
     try:
         # Vérification des dimensions
-        if img_array.shape[-1] != 3:
-            raise ValueError(f"L'image doit être en RGB, shape actuel: {img_array.shape}")
+        expected_shape = (1, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE, 3)
+        if img_array.shape != expected_shape:
+            raise ValueError(
+                f"Shape incorrect pour le modèle. Attendu: {expected_shape}, "
+                f"Reçu: {img_array.shape}"
+            )
+        
+        logger.info(f"Prédiction avec image de shape {img_array.shape}")
         
         # Prédiction
-        logger.info(f"Prédiction avec image de shape {img_array.shape}")
         probs = model.predict(img_array, verbose=0)[0]
         
         # Récupération de l'index
@@ -663,7 +684,7 @@ def predict_density(model, img_array):
         raise
 
 # ==========================================================
-# ANALYSE COMPLÈTE - VERSION CORRIGÉE
+# ANALYSE COMPLÈTE - CORRIGÉE
 # ==========================================================
 
 def analyze_complete(img, density_model, yolo_model, conf_threshold=0.15):
@@ -681,13 +702,14 @@ def analyze_complete(img, density_model, yolo_model, conf_threshold=0.15):
         if img_gray.shape[0] < 10 or img_gray.shape[1] < 10:
             raise ValueError(f"Image trop petite: {img_gray.shape}")
         
-        # 2. Prétraitement pour la densité
+        # 2. Prétraitement pour la densité (512x512)
         logger.info("Prétraitement de l'image...")
-        img_preprocessed = preprocess_mammogram_image(img_gray, 512)
+        img_preprocessed = preprocess_mammogram_image(img_gray, PREPROCESS_SIZE)
         results["preprocessed"] = img_preprocessed
         
-        # 3. Préparation pour le modèle
-        arr_density = prepare_for_model(img_preprocessed, IMG_SIZE_DENSITY)
+        # 3. Préparation pour le modèle (512x512 RGB normalisé)
+        logger.info("Préparation pour le modèle...")
+        arr_density = prepare_for_model(img_preprocessed)
         
         # 4. Analyse de densité
         logger.info("Analyse de la densité...")
@@ -751,11 +773,11 @@ def main():
     col1, col2, col3 = st.columns(3)
     with col1:
         if density_model:
-            st.markdown("""
+            st.markdown(f"""
             <div class="stat-card">
                 <div class="stat-label">🧠 Modèle Densité</div>
                 <div class="stat-value">✅</div>
-                <div style="font-size:0.8rem;color:#6b7280;">ACR A/B/C/D</div>
+                <div style="font-size:0.8rem;color:#6b7280;">Input: {density_model.input_shape}</div>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -789,7 +811,7 @@ def main():
         st.markdown(f"""
         <div class="stat-card">
             <div class="stat-label">📊 Version</div>
-            <div class="stat-value">v2.2</div>
+            <div class="stat-value">v2.3</div>
             <div style="font-size:0.8rem;color:#6b7280;">TensorFlow {tf.__version__}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -799,6 +821,9 @@ def main():
         if density_error:
             st.code(density_error, language="python")
         st.stop()
+    
+    # Afficher la taille attendue du modèle
+    st.info(f"📐 Le modèle attend des images de taille {MODEL_INPUT_SIZE}×{MODEL_INPUT_SIZE} pixels (redimensionnement automatique)")
     
     st.markdown("---")
     
