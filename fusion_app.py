@@ -15,7 +15,7 @@ import cv2
 import gc
 import json
 from dataclasses import dataclass, field, asdict
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from ultralytics import YOLO
 from pathlib import Path
 import time
@@ -39,14 +39,10 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* Import des polices */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
-    * {
-        font-family: 'Inter', sans-serif;
-    }
+    * { font-family: 'Inter', sans-serif; }
     
-    /* Header moderne */
     .modern-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         padding: 2rem 2.5rem;
@@ -95,7 +91,6 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.1);
     }
     
-    /* Cartes de statistiques */
     .stat-card {
         background: white;
         border-radius: 12px;
@@ -126,12 +121,6 @@ st.markdown("""
         letter-spacing: 0.03em;
     }
     
-    .stat-card .stat-icon {
-        font-size: 1.8rem;
-        opacity: 0.6;
-    }
-    
-    /* Zone de drop */
     .upload-area {
         border: 2px dashed #d1d5db;
         border-radius: 16px;
@@ -152,7 +141,6 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     
-    /* Résultats cards */
     .result-card {
         background: white;
         border-radius: 16px;
@@ -167,22 +155,6 @@ st.markdown("""
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
     }
     
-    /* Badges de densité */
-    .density-badge {
-        display: inline-block;
-        padding: 0.4rem 1.2rem;
-        border-radius: 50px;
-        font-weight: 600;
-        font-size: 0.9rem;
-        color: white;
-    }
-    
-    .density-badge-a { background: #10b981; }
-    .density-badge-b { background: #3b82f6; }
-    .density-badge-c { background: #f59e0b; }
-    .density-badge-d { background: #ef4444; }
-    
-    /* Badges BI-RADS */
     .birads-badge {
         display: inline-block;
         padding: 0.3rem 1rem;
@@ -196,7 +168,6 @@ st.markdown("""
     .birads-3 { background: #fef3c7; color: #92400e; }
     .birads-4 { background: #fee2e2; color: #991b1b; }
     
-    /* Progress bar custom */
     .custom-progress {
         background: #e5e7eb;
         border-radius: 50px;
@@ -211,51 +182,6 @@ st.markdown("""
         transition: width 0.5s ease;
     }
     
-    /* Boutons */
-    .btn-primary {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        padding: 0.7rem 2rem;
-        border-radius: 50px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        width: 100%;
-    }
-    
-    .btn-primary:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(102, 126, 234, 0.35);
-    }
-    
-    /* Timeline */
-    .timeline-item {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 0.5rem 0;
-        border-bottom: 1px solid #f3f4f6;
-    }
-    
-    .timeline-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        flex-shrink: 0;
-    }
-    
-    .timeline-dot-success { background: #10b981; }
-    .timeline-dot-warning { background: #f59e0b; }
-    .timeline-dot-danger { background: #ef4444; }
-    
-    /* Responsive */
-    @media (max-width: 768px) {
-        .modern-header h1 { font-size: 1.6rem; }
-        .stat-card .stat-value { font-size: 1.4rem; }
-    }
-    
-    /* Animations */
     @keyframes fadeInUp {
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: translateY(0); }
@@ -264,37 +190,6 @@ st.markdown("""
     .fade-in {
         animation: fadeInUp 0.5s ease forwards;
     }
-    
-    /* Tabs personnalisés */
-    .custom-tabs {
-        display: flex;
-        gap: 0.5rem;
-        background: #f3f4f6;
-        padding: 0.4rem;
-        border-radius: 12px;
-        margin: 1rem 0;
-    }
-    
-    .custom-tab {
-        padding: 0.6rem 1.5rem;
-        border-radius: 8px;
-        cursor: pointer;
-        font-weight: 500;
-        color: #6b7280;
-        transition: all 0.3s ease;
-        flex: 1;
-        text-align: center;
-    }
-    
-    .custom-tab.active {
-        background: white;
-        color: #1a1a2e;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    }
-    
-    .custom-tab:hover:not(.active) {
-        background: rgba(255, 255, 255, 0.5);
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -302,12 +197,11 @@ st.markdown("""
 # CONFIGURATION DES MODÈLES
 # ==========================================================
 
-# Configuration Densité (4 classes ACR_A, ACR_B, ACR_C, ACR_D)
 IMG_SIZE_DENSITY = 224
 
 CLASS_NAMES_DENSITY = {
     0: "ACR_A",
-    1: "ACR_B",
+    1: "ACR_B", 
     2: "ACR_C",
     3: "ACR_D"
 }
@@ -333,10 +227,8 @@ DENSITY_RISK = {
     "ACR_D": "Risque élevé"
 }
 
-# Configuration Lésions
 MODELE_YOLO_PATH = "detecteur_masscalcif.pt"
 IMGSZ = 1024
-MARGE_CROP = 0.15
 
 BIRADS_RECO = {
     "BI-RADS 1": "✅ Mammographie normale — aucune lésion détectée.",
@@ -394,15 +286,63 @@ class RapportLesions:
     recommandation: str
 
 # ==========================================================
+# FONCTIONS DE CONVERSION D'IMAGE UNIFORMISÉES
+# ==========================================================
+
+def image_to_array(img: Union[Image.Image, np.ndarray, str]) -> np.ndarray:
+    """
+    Convertit n'importe quel format d'image en array numpy (niveaux de gris).
+    Supporte : PIL.Image, numpy array, chemin de fichier.
+    """
+    if isinstance(img, Image.Image):
+        return np.array(img.convert("L"))
+    elif isinstance(img, np.ndarray):
+        if len(img.shape) == 3:
+            return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        return img
+    elif isinstance(img, str):
+        return np.array(Image.open(img).convert("L"))
+    else:
+        raise ValueError(f"Type d'image non supporté: {type(img)}")
+
+def image_to_rgb_array(img: Union[Image.Image, np.ndarray, str]) -> np.ndarray:
+    """
+    Convertit n'importe quel format d'image en array numpy RGB.
+    """
+    if isinstance(img, Image.Image):
+        return np.array(img.convert("RGB"))
+    elif isinstance(img, np.ndarray):
+        if len(img.shape) == 2:
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        elif len(img.shape) == 3 and img.shape[2] == 3:
+            return img
+        elif len(img.shape) == 3 and img.shape[2] == 4:
+            return cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
+        return img
+    elif isinstance(img, str):
+        return np.array(Image.open(img).convert("RGB"))
+    else:
+        raise ValueError(f"Type d'image non supporté: {type(img)}")
+
+# ==========================================================
 # PRÉTRAITEMENT
 # ==========================================================
 
 def preprocess_mammogram_image(img_array: np.ndarray, img_size: int = 512) -> np.ndarray:
+    """
+    Prétraite une image de mammographie.
+    img_array doit être un array numpy en niveaux de gris.
+    """
     if len(img_array.shape) == 3:
         img = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     else:
         img = img_array.copy()
     
+    # Vérifier les dimensions minimales
+    if img.shape[0] < 10 or img.shape[1] < 10:
+        raise ValueError(f"Image trop petite: {img.shape}")
+    
+    # Uniformisation fond blanc/noir
     border_pixels = np.concatenate([
         img[0, :], img[-1, :],
         img[:, 0], img[:, -1]
@@ -411,6 +351,7 @@ def preprocess_mammogram_image(img_array: np.ndarray, img_size: int = 512) -> np
     if border_mean > 127:
         img = cv2.bitwise_not(img)
     
+    # Détection du sein
     _, thresh = cv2.threshold(img, 10, 255, cv2.THRESH_BINARY)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
@@ -422,21 +363,28 @@ def preprocess_mammogram_image(img_array: np.ndarray, img_size: int = 512) -> np
         y = max(0, y - margin)
         w = min(img.shape[1] - x, w + 2 * margin)
         h = min(img.shape[0] - y, h + 2 * margin)
-        img = img[y:y+h, x:x+w]
+        if w > 0 and h > 0:
+            img = img[y:y+h, x:x+w]
     
+    # CLAHE
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     img = clahe.apply(img)
     
+    # Sharpening
     blur = cv2.GaussianBlur(img, (0, 0), sigmaX=2)
     img = cv2.addWeighted(img, 1.5, blur, -0.5, 0)
+    
+    # Normalisation
     img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
     
+    # Resize avec conservation des proportions
     h, w = img.shape
     scale = min(img_size / w, img_size / h)
     new_w = int(w * scale)
     new_h = int(h * scale)
     img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
     
+    # Canvas
     canvas = np.zeros((img_size, img_size), dtype=np.uint8)
     x_offset = (img_size - new_w) // 2
     y_offset = (img_size - new_h) // 2
@@ -445,6 +393,7 @@ def preprocess_mammogram_image(img_array: np.ndarray, img_size: int = 512) -> np
     return canvas
 
 def prepare_for_model(img_array: np.ndarray, target_size: int) -> np.ndarray:
+    """Prépare l'image pour le modèle CNN."""
     img_rgb = cv2.cvtColor(img_array, cv2.COLOR_GRAY2RGB)
     img_resized = cv2.resize(img_rgb, (target_size, target_size))
     arr = img_resized.astype(np.float32) / 255.0
@@ -674,26 +623,29 @@ def predict_density(model, img_array):
     return label, float(probs[idx]), all_probs
 
 # ==========================================================
-# ANALYSE COMPLÈTE
+# ANALYSE COMPLÈTE - VERSION CORRIGÉE
 # ==========================================================
 
 def analyze_complete(img, density_model, yolo_model, conf_threshold=0.15):
+    """
+    Analyse complète d'une image.
+    Supporte tous les formats d'image sans discrimination.
+    """
     results = {"success": True, "filename": getattr(img, 'name', 'image')}
     
     try:
-        if isinstance(img, Image.Image):
-            img_gray = img.convert("L")
-            img_array = np.array(img_gray)
-        else:
-            img_array = np.array(img)
-            if len(img_array.shape) == 3:
-                img_gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            else:
-                img_gray = img_array
+        # Conversion uniforme de l'image
+        img_gray = image_to_array(img)
         
+        # Vérification des dimensions
+        if img_gray.shape[0] < 10 or img_gray.shape[1] < 10:
+            raise ValueError(f"Image trop petite: {img_gray.shape}")
+        
+        # Prétraitement pour la densité
         img_preprocessed = preprocess_mammogram_image(img_gray, 512)
         results["preprocessed"] = img_preprocessed
         
+        # Analyse de densité
         arr_density = prepare_for_model(img_preprocessed, IMG_SIZE_DENSITY)
         label, conf, probs = predict_density(density_model, arr_density)
         
@@ -705,6 +657,7 @@ def analyze_complete(img, density_model, yolo_model, conf_threshold=0.15):
             "density_desc": DENSITY_DESC.get(label, "")
         })
         
+        # Analyse des lésions (si YOLO disponible)
         if yolo_model is not None:
             rapport = analyser_lesions(img_gray, yolo_model, conf_threshold)
             results["lesions"] = rapport
@@ -725,7 +678,7 @@ def analyze_complete(img, density_model, yolo_model, conf_threshold=0.15):
 # ==========================================================
 
 def main():
-    # Header moderne
+    # Header
     st.markdown("""
     <div class="modern-header">
         <h1>🏥 MammoAI</h1>
@@ -774,16 +727,16 @@ def main():
         """, unsafe_allow_html=True)
     
     with col3:
-        st.markdown("""
+        st.markdown(f"""
         <div class="stat-card">
             <div class="stat-label">📊 Version</div>
-            <div class="stat-value">v2.0</div>
-            <div style="font-size:0.8rem;color:#6b7280;">TensorFlow {}</div>
+            <div class="stat-value">v2.1</div>
+            <div style="font-size:0.8rem;color:#6b7280;">TensorFlow {tf.__version__}</div>
         </div>
-        """.format(tf.__version__), unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
     
     if density_model is None:
-        st.error("❌ Le modèle de densité est requis. Vérifiez que 'modele_densite_final.keras' est présent dans le répertoire.")
+        st.error("❌ Le modèle de densité est requis. Vérifiez que 'modele_densite_final.keras' est présent.")
         st.stop()
     
     st.markdown("---")
@@ -801,6 +754,9 @@ def main():
             <div class="upload-icon">🖼️</div>
             <h3 style="margin:0.5rem 0;color:#1a1a2e;">Déposez vos images ici</h3>
             <p style="color:#6b7280;margin:0;">Formats supportés : JPG, PNG, BMP, TIFF, WEBP</p>
+            <p style="color:#9ca3af;font-size:0.85rem;margin-top:0.5rem;">
+                Aucune discrimination de format — toutes les images sont traitées uniformément
+            </p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -809,7 +765,7 @@ def main():
             ### Comment utiliser MammoAI ?
             
             1. **Importez** vos mammographies via le bouton ci-dessus
-            2. **Analysez** en cliquant sur le bouton "Lancer l'analyse"
+            2. **Analysez** en cliquant sur "Lancer l'analyse"
             3. **Consultez** les résultats : densité ACR + détection des lésions
             
             ### Interprétation des résultats
@@ -918,14 +874,12 @@ def main():
         st.markdown("---")
         st.markdown("## 📊 Résultats de l'analyse")
         
-        # Vue en grille ou détail
         view_mode = st.radio(
             "Mode d'affichage",
             ["🔲 Grille", "📋 Détail", "📊 Tableau"],
             horizontal=True
         )
         
-        # Helper pour afficher les badges
         def density_badge_html(res):
             label = res.get("density_label", "—")
             desc = res.get("density_desc", "")
@@ -973,14 +927,10 @@ def main():
                     """, unsafe_allow_html=True)
                     
                     if res and res.get("success"):
-                        # Miniature
                         img = Image.open(f)
                         st.image(img, use_container_width=True)
-                        
-                        # Densité
                         st.markdown(density_badge_html(res), unsafe_allow_html=True)
                         
-                        # BI-RADS
                         birads = res.get("birads", "—")
                         st.markdown(f"""
                         <div style="margin-top:0.5rem;display:flex;justify-content:space-between;align-items:center;">
@@ -989,7 +939,6 @@ def main():
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        # Stats
                         st.caption(f"🔹 {res.get('nb_masses', 0)} masses · 🔸 {res.get('nb_calcifications', 0)} calcifications")
                     elif res:
                         st.error(f"❌ {res.get('error', 'Erreur')[:50]}...")
@@ -1017,13 +966,11 @@ def main():
                             st.image(res["annotated"], use_container_width=True)
                     
                     with col_info:
-                        # Densité
                         st.markdown("### 🧬 Densité mammaire")
                         st.markdown(density_badge_html(res), unsafe_allow_html=True)
                         
                         st.markdown("---")
                         
-                        # BI-RADS
                         st.markdown("### 🎯 Classification BI-RADS")
                         birads = res.get("birads", "—")
                         st.markdown(f"""
@@ -1035,14 +982,12 @@ def main():
                         
                         st.markdown("---")
                         
-                        # Statistiques
                         col1, col2 = st.columns(2)
                         with col1:
                             st.metric("Masses", res.get("nb_masses", 0))
                         with col2:
                             st.metric("Calcifications", res.get("nb_calcifications", 0))
                         
-                        # Détail des lésions
                         lesions_data = res.get("lesions")
                         if lesions_data and lesions_data.lesions:
                             st.markdown("---")
