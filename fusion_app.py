@@ -19,9 +19,8 @@ from typing import Optional, List, Dict, Any, Union
 from ultralytics import YOLO
 from pathlib import Path
 import time
-from io import BytesIO
-import base64
 import logging
+import os
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -187,6 +186,22 @@ st.markdown("""
         transition: width 0.5s ease;
     }
     
+    .warning-box {
+        background: #fef3c7;
+        border-left: 5px solid #f59e0b;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
+    
+    .error-box {
+        background: #fee2e2;
+        border-left: 5px solid #ef4444;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
+    
     @keyframes fadeInUp {
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: translateY(0); }
@@ -202,13 +217,9 @@ st.markdown("""
 # CONFIGURATION DES MODÈLES
 # ==========================================================
 
-# TAILLE RÉELLE DU MODÈLE - IMPORTANT !
-# Le modèle a été entraîné avec des images 512x512
-MODEL_INPUT_SIZE = 512  # ← TAILLE RÉELLE DU MODÈLE
-
-# Pour l'affichage et le prétraitement intermédiaire
+# TAILLE RÉELLE DU MODÈLE
+MODEL_INPUT_SIZE = 512
 PREPROCESS_SIZE = 512
-DISPLAY_SIZE = 224  # Pour l'affichage uniquement
 
 CLASS_NAMES_DENSITY = {
     0: "ACR_A",
@@ -297,14 +308,11 @@ class RapportLesions:
     recommandation: str
 
 # ==========================================================
-# FONCTIONS DE CONVERSION D'IMAGE UNIFORMISÉES
+# FONCTIONS DE CONVERSION D'IMAGE
 # ==========================================================
 
 def image_to_array(img: Union[Image.Image, np.ndarray, str]) -> np.ndarray:
-    """
-    Convertit n'importe quel format d'image en array numpy (niveaux de gris).
-    Supporte : PIL.Image, numpy array, chemin de fichier.
-    """
+    """Convertit n'importe quel format d'image en array numpy (niveaux de gris)."""
     if isinstance(img, Image.Image):
         return np.array(img.convert("L"))
     elif isinstance(img, np.ndarray):
@@ -313,23 +321,6 @@ def image_to_array(img: Union[Image.Image, np.ndarray, str]) -> np.ndarray:
         return img
     elif isinstance(img, str):
         return np.array(Image.open(img).convert("L"))
-    else:
-        raise ValueError(f"Type d'image non supporté: {type(img)}")
-
-def image_to_rgb_array(img: Union[Image.Image, np.ndarray, str]) -> np.ndarray:
-    """Convertit n'importe quel format d'image en array numpy RGB."""
-    if isinstance(img, Image.Image):
-        return np.array(img.convert("RGB"))
-    elif isinstance(img, np.ndarray):
-        if len(img.shape) == 2:
-            return cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-        elif len(img.shape) == 3 and img.shape[2] == 3:
-            return img
-        elif len(img.shape) == 3 and img.shape[2] == 4:
-            return cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
-        return img
-    elif isinstance(img, str):
-        return np.array(Image.open(img).convert("RGB"))
     else:
         raise ValueError(f"Type d'image non supporté: {type(img)}")
 
@@ -344,7 +335,6 @@ def preprocess_mammogram_image(img_array: np.ndarray, img_size: int = 512) -> np
     else:
         img = img_array.copy()
     
-    # Vérification des dimensions
     if img.shape[0] < 10 or img.shape[1] < 10:
         raise ValueError(f"Image trop petite: {img.shape}")
     
@@ -398,33 +388,26 @@ def preprocess_mammogram_image(img_array: np.ndarray, img_size: int = 512) -> np
     
     return canvas
 
-# ==========================================================
-# PRÉPARATION POUR LE MODÈLE - CORRIGÉE !
-# ==========================================================
-
 def prepare_for_model(img_array: np.ndarray) -> np.ndarray:
     """
     Prépare l'image pour le modèle CNN.
     Le modèle attend des images 512x512 en RGB.
     """
-    # Vérifier si l'image est en niveaux de gris
     if len(img_array.shape) == 2:
-        # Convertir en RGB
         img_rgb = cv2.cvtColor(img_array, cv2.COLOR_GRAY2RGB)
     else:
         img_rgb = img_array
     
-    # Redimensionner à 512x512 (TAILLE RÉELLE DU MODÈLE)
+    # Redimensionner à 512x512
     img_resized = cv2.resize(img_rgb, (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), 
                              interpolation=cv2.INTER_AREA)
     
-    # Normaliser entre 0 et 1
+    # Normalisation entre 0 et 1
     img_normalized = img_resized.astype(np.float32) / 255.0
     
-    # Ajouter la dimension batch (1, 512, 512, 3)
+    # Ajouter la dimension batch
     batch_input = np.expand_dims(img_normalized, axis=0)
     
-    logger.info(f"Image préparée pour le modèle: shape {batch_input.shape}")
     return batch_input
 
 # ==========================================================
@@ -629,9 +612,14 @@ def load_density_model():
             compile=False
         )
         logger.info(f"Modèle de densité chargé. Input shape: {model.input_shape}")
+        
+        # Vérification du modèle
+        if model.input_shape is None:
+            return None, "Le modèle n'a pas de shape d'entrée définie"
+        
         return model, None
     except Exception as e:
-        error_msg = f"Erreur de chargement du modèle de densité: {str(e)}"
+        error_msg = f"Erreur de chargement: {str(e)}"
         logger.error(error_msg)
         return None, error_msg
 
@@ -639,34 +627,35 @@ def load_density_model():
 def load_yolo_model():
     """Charge le modèle YOLO avec gestion des erreurs."""
     try:
+        # Vérifier si le fichier existe
+        if not os.path.exists(MODELE_YOLO_PATH):
+            return None, f"Fichier {MODELE_YOLO_PATH} introuvable"
+        
         logger.info("Chargement du modèle YOLO...")
         model = YOLO(MODELE_YOLO_PATH)
         logger.info("Modèle YOLO chargé avec succès")
         return model, None
     except Exception as e:
-        error_msg = f"Erreur de chargement du modèle YOLO: {str(e)}"
+        error_msg = f"Erreur de chargement YOLO: {str(e)}"
         logger.warning(error_msg)
         return None, error_msg
 
 # ==========================================================
-# PRÉDICTION DENSITÉ - CORRIGÉE
+# PRÉDICTION DENSITÉ
 # ==========================================================
 
 def predict_density(model, img_array):
     """
     Prédit la densité mammaire.
-    img_array doit être au format (1, 512, 512, 3)
     """
     try:
         # Vérification des dimensions
         expected_shape = (1, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE, 3)
         if img_array.shape != expected_shape:
             raise ValueError(
-                f"Shape incorrect pour le modèle. Attendu: {expected_shape}, "
+                f"Shape incorrect. Attendu: {expected_shape}, "
                 f"Reçu: {img_array.shape}"
             )
-        
-        logger.info(f"Prédiction avec image de shape {img_array.shape}")
         
         # Prédiction
         probs = model.predict(img_array, verbose=0)[0]
@@ -677,6 +666,8 @@ def predict_density(model, img_array):
         all_probs = {CLASS_NAMES_DENSITY[i]: float(probs[i]) for i in range(4)}
         
         logger.info(f"Prédiction: {label} avec confiance {float(probs[idx]):.3f}")
+        logger.info(f"Probabilités: {all_probs}")
+        
         return label, float(probs[idx]), all_probs
         
     except Exception as e:
@@ -684,30 +675,29 @@ def predict_density(model, img_array):
         raise
 
 # ==========================================================
-# ANALYSE COMPLÈTE - CORRIGÉE
+# ANALYSE COMPLÈTE
 # ==========================================================
 
 def analyze_complete(img, density_model, yolo_model, conf_threshold=0.15):
     """
-    Analyse complète d'une image avec gestion robuste des erreurs.
+    Analyse complète d'une image.
     """
     results = {"success": True, "filename": getattr(img, 'name', 'image')}
     
     try:
-        # 1. Conversion uniforme de l'image
+        # 1. Conversion de l'image
         logger.info(f"Analyse de l'image: {results['filename']}")
         img_gray = image_to_array(img)
         
-        # Vérification des dimensions
         if img_gray.shape[0] < 10 or img_gray.shape[1] < 10:
             raise ValueError(f"Image trop petite: {img_gray.shape}")
         
-        # 2. Prétraitement pour la densité (512x512)
+        # 2. Prétraitement
         logger.info("Prétraitement de l'image...")
         img_preprocessed = preprocess_mammogram_image(img_gray, PREPROCESS_SIZE)
         results["preprocessed"] = img_preprocessed
         
-        # 3. Préparation pour le modèle (512x512 RGB normalisé)
+        # 3. Préparation pour le modèle
         logger.info("Préparation pour le modèle...")
         arr_density = prepare_for_model(img_preprocessed)
         
@@ -723,7 +713,7 @@ def analyze_complete(img, density_model, yolo_model, conf_threshold=0.15):
             "density_desc": DENSITY_DESC.get(label, "")
         })
         
-        # 5. Analyse des lésions (si YOLO disponible)
+        # 5. Analyse des lésions (OBLIGATOIRE)
         if yolo_model is not None:
             logger.info("Analyse des lésions...")
             rapport = analyser_lesions(img_gray, yolo_model, conf_threshold)
@@ -734,12 +724,21 @@ def analyze_complete(img, density_model, yolo_model, conf_threshold=0.15):
             results["recommandation"] = rapport.recommandation
             results["nb_masses"] = rapport.nb_masses
             results["nb_calcifications"] = rapport.nb_amas_calcif
+        else:
+            # Si YOLO n'est pas disponible, on simule un rapport BI-RADS 1
+            logger.warning("YOLO non disponible - création d'un rapport minimal")
+            results["birads"] = "BI-RADS 1"
+            results["recommandation"] = "⚠️ Analyse des lésions non disponible (modèle YOLO manquant)"
+            results["nb_masses"] = 0
+            results["nb_calcifications"] = 0
+            results["lesions"] = None
+            results["annotated"] = None
         
         logger.info(f"Analyse terminée avec succès pour {results['filename']}")
 
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"Erreur lors de l'analyse de {results['filename']}: {error_msg}")
+        logger.error(f"Erreur lors de l'analyse: {error_msg}")
         results = {
             "success": False,
             "error": error_msg,
@@ -799,11 +798,11 @@ def main():
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.markdown("""
+            st.markdown(f"""
             <div class="stat-card">
                 <div class="stat-label">🎯 Modèle Lésions</div>
                 <div class="stat-value">⚠️</div>
-                <div style="font-size:0.8rem;color:#f59e0b;">Optionnel</div>
+                <div style="font-size:0.8rem;color:#f59e0b;">{yolo_error[:50] if yolo_error else 'Non chargé'}</div>
             </div>
             """, unsafe_allow_html=True)
     
@@ -811,19 +810,30 @@ def main():
         st.markdown(f"""
         <div class="stat-card">
             <div class="stat-label">📊 Version</div>
-            <div class="stat-value">v2.3</div>
+            <div class="stat-value">v2.4</div>
             <div style="font-size:0.8rem;color:#6b7280;">TensorFlow {tf.__version__}</div>
         </div>
         """, unsafe_allow_html=True)
     
+    # Alertes
     if density_model is None:
         st.error("❌ Le modèle de densité est requis. Vérifiez que 'modele_densite_final.keras' est présent.")
         if density_error:
             st.code(density_error, language="python")
         st.stop()
     
-    # Afficher la taille attendue du modèle
-    st.info(f"📐 Le modèle attend des images de taille {MODEL_INPUT_SIZE}×{MODEL_INPUT_SIZE} pixels (redimensionnement automatique)")
+    if yolo_model is None:
+        st.warning("""
+        ⚠️ **Modèle YOLO non disponible**
+        
+        L'analyse des lésions ne sera pas disponible.
+        Vérifiez que le fichier `detecteur_masscalcif.pt` est présent.
+        
+        L'analyse de la densité reste fonctionnelle.
+        """)
+    
+    # Informations
+    st.info(f"📐 Le modèle de densité attend des images de taille {MODEL_INPUT_SIZE}×{MODEL_INPUT_SIZE} pixels (redimensionnement automatique)")
     
     st.markdown("---")
     
