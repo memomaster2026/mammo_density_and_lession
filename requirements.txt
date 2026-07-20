@@ -1,6 +1,10 @@
-streamlit
-ultralytics
-opencv-python-headless
-numpy
-pillow
-onnxruntime
+streamlit==1.47.0
+ultralytics==8.3.0
+onnxruntime==1.22.1
+tensorflow==2.19.0
+numpy==1.26.4
+pillow==11.3.0
+pandas==2.3.1
+h5py==3.14.0
+protobuf==5.29.5
+opencv-python-headless==4.12.0.88
